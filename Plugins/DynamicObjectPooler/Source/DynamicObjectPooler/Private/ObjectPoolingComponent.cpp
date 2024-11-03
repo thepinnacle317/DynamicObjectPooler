@@ -3,8 +3,6 @@
 
 #include "ObjectPoolingComponent.h"
 #include "PooledActorInterface.h"
-#include "Engine/AssetManager.h"
-#include "Engine/StreamableManager.h"
 #include "GameFramework/Actor.h"
 #include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
@@ -42,41 +40,6 @@ void UObjectPoolingComponent::InitializePool(TSubclassOf<AActor> ActorClass, int
 	for (int32 i = 0; i < PoolSize; ++i)
 	{
 		ExpandPool();
-	}
-}
-
-void UObjectPoolingComponent::InitializePoolAsync_Implementation(int32 InitialSize)
-{
-	if (!IsServer())
-	{
-		// Ensure only the server initiates this function
-		return;
-	}
-	
-	InitialSpawnTransform = FTransform(FRotator(0, 0, 0), FVector(0, 0, 100));
-	
-	if (!IsValid(PooledObjectClass))
-	{
-		UE_LOG(LogTemp, Warning, TEXT("PooledObjectClass is not set."));
-		return;
-	}
-
-	if (IsValid(PooledObjectClass))
-	{
-		// Already loaded, so expand the pool immediately
-		ExpandPoolAsync(InitialSpawnTransform);
-	}
-	else
-	{
-		// Load the pooled actor class asynchronously if it is not loaded yet
-		FStreamableManager& StreamableManager = UAssetManager::GetStreamableManager();
-		StreamableManager.RequestAsyncLoad(
-			SoftPooledObjectClass.ToSoftObjectPath(),
-			FStreamableDelegate::CreateLambda([this]()
-			{
-				ExpandPoolAsync(InitialSpawnTransform);			
-			})
-		);
 	}
 }
 
@@ -225,46 +188,6 @@ AActor* UObjectPoolingComponent::SpawnPooledActor(const FTransform& SpawnTransfo
 	return nullptr; 
 }
 
-void UObjectPoolingComponent::SpawnPooledActorAsync(UClass* ActorClass, const FTransform& SpawnTransform)
-{
-	if (!ActorClass) return;  // Check if the class is valid
-
-	UWorld* World = GetWorld();  // Get the world context beforehand
-	if (!IsValid(World)) return;  // Ensure the world context is valid
-
-	// Start an asynchronous task
-	AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [this, ActorClass, SpawnTransform, World]()
-	{
-		// Instead of spawning here, just pass the necessary information to the main thread
-		AsyncTask(ENamedThreads::GameThread, [this, ActorClass, SpawnTransform, World]()
-		{
-			if (!IsValid(World)) return;  // Ensure the world context is still valid
-
-			// Spawn the actor in the game world, now on the game thread
-			AActor* NewActor = World->SpawnActor<AActor>(ActorClass, SpawnTransform);
-			if (IsValid(NewActor))
-			{
-				// Configure properties before adding to the pool
-				NewActor->SetActorHiddenInGame(true);
-				NewActor->SetActorEnableCollision(false);
-				NewActor->SetActorTickEnabled(false);
-				NewActor->SetReplicates(true);
-				NewActor->SetReplicateMovement(true);
-
-				// Add the newly spawned actor to the pool
-				Pool.Add(NewActor);
-				TotalObjectsCreated++;
-
-				UE_LOG(LogTemp, Log, TEXT("Async pooled actor spawned and added to pool."));
-			}
-			else
-			{
-				UE_LOG(LogTemp, Error, TEXT("Failed to asynchronously spawn actor for the pool."));
-			}
-		});
-	});
-}
-
 void UObjectPoolingComponent::ExpandPool()
 {
 	// Check that there if a valid context object and valid class assigned to be pooled
@@ -296,65 +219,3 @@ void UObjectPoolingComponent::ExpandPool()
 	}
 }
 
-void UObjectPoolingComponent::ExpandPoolAsync(const FTransform& SpawnTransform)
-{
-	// Ensure only the server expands the pool
-	AActor* OwnerActor = GetOwner();
-	if (!OwnerActor || !OwnerActor->HasAuthority()) return;
-
-	// Load the actor class if it's not already loaded
-	if (!IsValid(PooledObjectClass))
-	{
-		if (SoftPooledObjectClass.IsValid())
-		{
-			// Asynchronously load the asset
-			FStreamableManager& StreamableManager = UAssetManager::GetStreamableManager();
-			StreamableManager.RequestAsyncLoad(
-				SoftPooledObjectClass.ToSoftObjectPath(),
-				FStreamableDelegate::CreateUObject(this, &UObjectPoolingComponent::OnActorClassLoaded)
-			);
-		}
-		else
-		{
-			UE_LOG(LogTemp, Error, TEXT("SoftPooledObjectClass is not valid."));
-		}
-	}
-	else
-	{
-		// Actor class already loaded, so begin spawning actors
-		StartAsyncSpawning();
-	}
-}
-
-void UObjectPoolingComponent::StartAsyncSpawning()
-{
-	// Expand the pool by spawning actors
-	for (int32 i = 0; i < InitialPoolSize; i++)
-	{
-		// Start an asynchronous spawn operation for each actor
-		SpawnPooledActorAsync(PooledObjectClass, InitialSpawnTransform);
-	}
-
-	// Notify all clients that the pool has been initialized
-	Multicast_OnPoolInitialized();
-}
-
-void UObjectPoolingComponent::OnActorClassLoaded()
-{
-	// Assign the loaded class to PooledObjectClass
-	PooledObjectClass = SoftPooledObjectClass.Get();
-	if (!PooledObjectClass)
-	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to load pooled actor class."));
-		return;
-	}
-
-	// Now that the class is loaded, proceed to expand the pool
-	ExpandPoolAsync(InitialSpawnTransform);
-}
-
-bool UObjectPoolingComponent::InitializePoolAsync_Validate(int32 InitialSize)
-{
-	// Can add any validation logic that is required here.
-	return true;
-}

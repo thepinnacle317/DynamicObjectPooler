@@ -41,14 +41,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Dynamic Object Pooling")
 	AActor* SpawnPooledActor(const FTransform& SpawnTransform);
 
-	/* Used to spawn pooled actors over the engine method */
-	UFUNCTION(BlueprintCallable, Category = "Dynamic Object Pooling")
-	void SpawnPooledActorAsync(UClass* ActorClass, const FTransform& SpawnTransform);
-
-	/* Used to spawn pooled actors over the engine method */
-	UFUNCTION(BlueprintCallable, Server, Reliable, WithValidation, Category = "Dynamic Object Pooling | Async")
-	void InitializePoolAsync(int32 InitialSize);
-
 	// Get the current number of pooled objects
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Pooling")
 	int32 GetTotalObjectsCreated() const { return TotalObjectsCreated; }
@@ -135,13 +127,6 @@ private:
 
 	/* Used to expand the object pool ** Called in intialize and GetPooledObject */
 	void ExpandPool();
-	
-	/* Async Expand function that is called internally to the component */
-	void ExpandPoolAsync(const FTransform& SpawnTransform);
-
-	void StartAsyncSpawning();
-
-	void OnActorClassLoaded();
 
 	UPROPERTY()
 	FTransform InitialSpawnTransform;
