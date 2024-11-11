@@ -116,6 +116,8 @@ void UObjectPoolingComponent::ReturnObjectToPool(AActor* Actor)
 {
 	// Check that it is being called from the server, has been passed a valid actor, and contains a valid actor.
 	if (!GetOwner()->HasAuthority() || !Actor || !Pool.Contains(Actor)) return;
+
+	UE_LOG(LogTemp, Log, TEXT("Returning actor to pool: %s"), *Actor->GetName());
 	
 	// Handle Actor Properties
 	Actor->SetActorHiddenInGame(true);
@@ -127,14 +129,19 @@ void UObjectPoolingComponent::ReturnObjectToPool(AActor* Actor)
 	Actor->SetReplicates(false);
 	Actor->SetReplicateMovement(false);
 
+	// Check if using the lifespan timer
+	if (bUseTimerLifespan)
+	{
+		GetWorld()->GetTimerManager().ClearAllTimersForObject(Actor);
+	}
+
 	// Decrement the active objects and set the amount of inactive objects
 	ActiveObjects--;
 	InactiveObjects = Pool.Num() - ActiveObjects;
-
-	// Broadcast event when the actor is returned to the pool
-	OnPooledActorReturned.Broadcast(Actor);
-
 	TotalReturnRequests++;
+	
+	// Broadcast event when the actor is returned to the pool
+	OnPooledActorReturned.Broadcast(Actor);	
 }
 
 AActor* UObjectPoolingComponent::SpawnPooledActor(const FTransform& SpawnTransform)
@@ -161,8 +168,10 @@ AActor* UObjectPoolingComponent::SpawnPooledActor(const FTransform& SpawnTransfo
 		PooledActor->SetActorEnableCollision(true);
 		PooledActor->SetActorTickEnabled(true);
 
-		PooledActor->SetLifeSpan(ActorLifespan);
-		PooledActor->OnDestroyed.AddDynamic(this, &UObjectPoolingComponent::HandleDestroyedActor);
+		if (!bUseTimerLifespan)
+		{
+			PooledActor->OnDestroyed.AddDynamic(this, &UObjectPoolingComponent::HandleDestroyedActor);
+		}
 
 		// Notify clients about the activation
 		PooledActor->SetReplicates(true);
@@ -178,6 +187,27 @@ AActor* UObjectPoolingComponent::SpawnPooledActor(const FTransform& SpawnTransfo
 			PeakUsage = ActiveObjects;
 		}
 
+		// Will use the timer based on the actor lifespan to return the actor back to the pool.
+		if (bUseTimerLifespan)
+		{
+			GetWorld()->GetTimerManager().SetTimerForNextTick([this, PooledActor]()
+			{
+				/* Timer handle used to manage the lifespan of the actor. */
+				FTimerHandle LifespanTimerHandle;
+				GetWorld()->GetTimerManager().SetTimer(LifespanTimerHandle, FTimerDelegate::CreateUObject(this, &UObjectPoolingComponent::ReturnObjectToPool, PooledActor),
+					ActorLifespan,
+					false
+					);
+			}
+			);
+		}
+		else
+		{
+			// This will cause the actor to destroy itself and then force the system to create a new spot in memory at the end of the array.
+			// This works great if you do not want to manually reset data for reusing the actor.
+			PooledActor->SetLifeSpan(ActorLifespan);
+		}
+		
 		// Broadcast event when pooled actor is spawned
 		OnPooledActorSpawned.Broadcast(PooledActor);
 		

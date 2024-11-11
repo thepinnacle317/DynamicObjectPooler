@@ -47,7 +47,7 @@ public:
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="Dynamic Object Pooling")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="Dynamic Object Pooling | Configuration")
 	bool bAutoExpand = false;
 
 	UPROPERTY(BlueprintAssignable, Category = "Dynamic Object Pooling | Delegates")
@@ -59,8 +59,11 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Dynamic Object Pooling | Delegates")
 	FOnPoolInitialized OnPoolInitialized;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="Dynamic Object Pooling")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dynamic Object Pooling")
 	float ActorLifespan;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dynamic Object Pooling | Configuration")
+	bool bUseTimerLifespan = true;
 
 	
 	/* Pooling Statistics Variables */
@@ -102,17 +105,14 @@ protected:
 	void Multicast_OnPoolInitialized();
 	
 	// Initial size of the pool for Async
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dynamic Object Pooling | Async", meta = (ClampMin = "1", UIMin = "1"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dynamic Object Pooling", meta = (ClampMin = "1", UIMin = "1"))
 	int32 InitialPoolSize = 10;
 
 private:
+		
 	/* The class that will be assigned to the pool */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="Dynamic Object Pooling", meta = (AllowPrivateAccess = "true"))
 	TSubclassOf<AActor> PooledObjectClass;
-
-	/* The class that will be assigned to the pool for Async Loading */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="Dynamic Object Pooling", meta = (AllowPrivateAccess = "true"))
-	TSoftClassPtr<AActor> SoftPooledObjectClass;
 
 	/* The array of actors that will be used to pull from and return to */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category="Dynamic Object Pooling", meta = (AllowPrivateAccess = "true"))
